@@ -19,9 +19,11 @@ setup(
     license='TODO: License declaration',
     tests_require=['pytest'],
 entry_points={
-    'console_scripts': [
-        'safety_node_exe = safety_node.safety_node:main',
-    ],
-},
+        'console_scripts': [
+            'safety_node_exe = safety_node.safety_node:main',
+            'wall_follow_exe = safety_node.wall_follow:main',
+            'pure_pursuit_exe = safety_node.pure_pursuit:main',
+        ],
+    },
 )
 
