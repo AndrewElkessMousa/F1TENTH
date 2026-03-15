@@ -3,132 +3,101 @@ from rclpy.node import Node
 import numpy as np
 import pandas as pd
 import os
+import message_filters
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
-from visualization_msgs.msg import Marker, MarkerArray # For the green dots
 from tf_transformations import euler_from_quaternion
 
-class PurePursuit(Node):
+class AutomatedCurriculumLogger(Node):
     def __init__(self):
-        super().__init__('pure_pursuit_node')
+        super().__init__('automated_curriculum_logger')
         
         # --- CONFIGURATION ---
-        self.csv_path = os.path.expanduser('~/sim_ws/src/controller/controller/waypoints.csv')
-        self.max_speed = 8.0
-        self.min_speed = 2.0
-        self.lookahead_gain = 0.1
-        self.lookahead_min = 0.8
-        self.lookahead_max = 3.0
+        self.waypoints_path = os.path.expanduser('~/sim_ws/src/controller/controller/waypoints.csv')
+        self.output_csv_path = os.path.expanduser('~/sim_ws/src/controller/controller/training_data.csv')
         self.wheelbase = 0.33
         
-        # --- ACCURATE LAP TIMER SETTINGS ---
-        self.lap_start_time = None
+        # --- CURRICULUM SETTINGS ---
+        self.speeds = [5.0, 7.0, 8.5] 
+        self.speed_idx = 0
+        self.max_speed = self.speeds[self.speed_idx]
+        self.laps_per_speed = 5
+        self.current_lap_in_phase = 0
+
+        # --- LAP TIMER LOGIC ---
         self.lap_count = 0
-        self.finish_line_threshold = 1.2   # Increased for accuracy at 8m/s
-        self.cooldown_dist = 10.0          
-        self.total_dist_traveled = 0.0
         self.last_pos = None
-        self.lap_triggered = False         
-        # ---------------------
+        self.total_dist_traveled = 0.0
+        self.cooldown_dist = 15.0
+        self.finish_threshold = 1.2
+        self.lap_triggered = False
 
-        # Subscribers and Publishers
-        self.sub_odom = self.create_subscription(Odometry, '/ego_racecar/odom', self.odom_callback, 10)
+        # Subscribers
+        self.odom_sub = message_filters.Subscriber(self, Odometry, '/ego_racecar/odom')
+        self.scan_sub = message_filters.Subscriber(self, LaserScan, '/scan')
+        self.ts = message_filters.ApproximateTimeSynchronizer([self.odom_sub, self.scan_sub], 10, 0.05)
+        self.ts.registerCallback(self.sync_callback)
+
         self.pub_drive = self.create_publisher(AckermannDriveStamped, '/drive', 10)
-        
-        # Visualization Publisher
-        self.viz_pub = self.create_publisher(MarkerArray, '/viz_path', 10)
 
+        self.data_buffer = []
         self.load_waypoints()
         
-        # Timer to publish the green dots every 2 seconds
-        self.create_timer(2.0, self.publish_static_path)
-        
-        self.get_logger().info(f"🏎️ Pure Pursuit Active! Green path dots enabled.")
+        self.get_logger().info(f"🚀 LOGGER READY: Phase {self.speed_idx + 1}/3 | Max Speed: {self.max_speed} m/s")
 
     def load_waypoints(self):
-        try:
-            df = pd.read_csv(self.csv_path)
-            self.waypoints = df[['x', 'y']].values
-            self.get_logger().info(f"✅ Loaded {len(self.waypoints)} waypoints.")
-        except Exception as e:
-            self.get_logger().error(f"❌ CSV Load Error: {e}")
-            self.waypoints = None
-
-    def publish_static_path(self):
-        """Publishes the green spheres to RViz."""
-        if self.waypoints is None:
+        if not os.path.exists(self.waypoints_path):
+            self.get_logger().error(f"❌ Waypoints not found at {self.waypoints_path}")
             return
+        df = pd.read_csv(self.waypoints_path)
+        self.waypoints = df[['x', 'y']].values
 
-        marker_array = MarkerArray()
-        # We step by 5 to avoid overloading RViz with too many markers
-        for i in range(0, len(self.waypoints), 5):
-            marker = Marker()
-            marker.header.frame_id = "map"
-            marker.id = i
-            marker.type = Marker.SPHERE
-            marker.action = Marker.ADD
-            
-            marker.pose.position.x = float(self.waypoints[i][0])
-            marker.pose.position.y = float(self.waypoints[i][1])
-            marker.pose.position.z = 0.0
-            
-            # Scale of the dots
-            marker.scale.x, marker.scale.y, marker.scale.z = 0.15, 0.15, 0.15
-            
-            # Color: Green
-            marker.color.a = 1.0 # Alpha
-            marker.color.r = 0.0
-            marker.color.g = 1.0
-            marker.color.b = 0.0
-            
-            marker_array.markers.append(marker)
-        
-        self.viz_pub.publish(marker_array)
-
-    def update_lap_timer(self, x, y):
+    def update_lap_counter(self, x, y):
         curr_pos = np.array([x, y])
         if self.last_pos is None:
             self.last_pos = curr_pos
-            self.lap_start_time = self.get_clock().now()
             return
 
-        step_dist = np.linalg.norm(curr_pos - self.last_pos)
-        self.total_dist_traveled += step_dist
+        self.total_dist_traveled += np.linalg.norm(curr_pos - self.last_pos)
         self.last_pos = curr_pos
+        dist_to_start = np.linalg.norm(curr_pos - self.waypoints[0])
 
-        dist_to_finish = np.linalg.norm(curr_pos - self.waypoints[0])
-
-        if dist_to_finish < self.finish_line_threshold:
+        if dist_to_start < self.finish_threshold:
             if not self.lap_triggered and self.total_dist_traveled > self.cooldown_dist:
-                now = self.get_clock().now()
-                if self.lap_start_time is not None:
-                    lap_time_sec = (now - self.lap_start_time).nanoseconds / 1e9
-                    self.lap_count += 1
-                    self.get_logger().info(f"🏁 [BASELINE] LAP {self.lap_count} | TIME: {lap_time_sec:.3f}s")
-                
-                self.lap_start_time = now
+                self.lap_count += 1
+                self.current_lap_in_phase += 1
                 self.total_dist_traveled = 0.0
                 self.lap_triggered = True
+                
+                self.get_logger().info(f"🏁 LAP {self.lap_count} DONE ({self.current_lap_in_phase}/{self.laps_per_speed})")
+
+                if self.current_lap_in_phase >= self.laps_per_speed:
+                    self.speed_idx += 1
+                    if self.speed_idx < len(self.speeds):
+                        self.max_speed = self.speeds[self.speed_idx]
+                        self.current_lap_in_phase = 0
+                        self.get_logger().info(f"🔥 SPEED INCREASED TO: {self.max_speed} m/s")
+                    else:
+                        self.get_logger().info("✅ CURRICULUM FINISHED!")
+                        self.max_speed = 0.0 
         else:
             if self.lap_triggered:
                 self.lap_triggered = False
 
-    def odom_callback(self, msg):
-        if self.waypoints is None:
-            return
-
-        curr_x = msg.pose.pose.position.x
-        curr_y = msg.pose.pose.position.y
-        curr_v = msg.twist.twist.linear.x
+    def sync_callback(self, odom_msg, scan_msg):
+        curr_x = odom_msg.pose.pose.position.x
+        curr_y = odom_msg.pose.pose.position.y
+        curr_v = odom_msg.twist.twist.linear.x
         
-        self.update_lap_timer(curr_x, curr_y)
+        self.update_lap_counter(curr_x, curr_y)
 
-        orient = msg.pose.pose.orientation
+        # 1. Orientation
+        orient = odom_msg.pose.pose.orientation
         _, _, yaw = euler_from_quaternion([orient.x, orient.y, orient.z, orient.w])
-
-        Ld = np.clip(curr_v * self.lookahead_gain + self.lookahead_min, 
-                     self.lookahead_min, self.lookahead_max)
-
+        
+        # 2. Pure Pursuit Logic
+        Ld = np.clip(curr_v * 0.12 + 0.8, 0.8, 3.5)
         distances = np.linalg.norm(self.waypoints - np.array([curr_x, curr_y]), axis=1)
         closest_idx = np.argmin(distances)
         
@@ -137,30 +106,70 @@ class PurePursuit(Node):
             if distances[i] >= Ld:
                 target_idx = i
                 break
+        
         target_point = self.waypoints[target_idx]
-
         dx, dy = target_point[0] - curr_x, target_point[1] - curr_y
         local_y = dx * np.sin(-yaw) + dy * np.cos(-yaw)
-
         steering_angle = np.arctan((2 * self.wheelbase * local_y) / (Ld**2))
         steering_angle = np.clip(steering_angle, -0.41, 0.41)
 
-        turn_severity = abs(steering_angle) / 0.41
-        target_speed = self.max_speed - (self.max_speed - self.min_speed) * turn_severity
+        # 3. Predictive Braking
+        future_idx = min(target_idx + 12, len(self.waypoints) - 1)
+        future_pt = self.waypoints[future_idx]
+        f_dx, f_dy = future_pt[0] - curr_x, future_pt[1] - curr_y
+        f_local_y = f_dx * np.sin(-yaw) + f_dy * np.cos(-yaw)
+        future_steer_needed = abs(np.arctan((2 * self.wheelbase * f_local_y) / (Ld**2)))
+        
+        severity = max(abs(steering_angle), future_steer_needed) / 0.41
+        min_allowed = min(3.5, self.max_speed)
+        
+        if self.max_speed > 0:
+            target_speed = max(self.max_speed - (self.max_speed - min_allowed) * severity, min_allowed)
+        else:
+            target_speed = 0.0
 
+        # 4. Actuate
         drive_msg = AckermannDriveStamped()
-        drive_msg.header.stamp = self.get_clock().now().to_msg()
         drive_msg.drive.speed = float(target_speed)
         drive_msg.drive.steering_angle = float(steering_angle)
         self.pub_drive.publish(drive_msg)
 
+        # --- 5. UPDATED LOGGING (Includes curr_x, curr_y) ---
+        scan_ranges = np.array(scan_msg.ranges)
+        scan_ranges = np.nan_to_num(scan_ranges, nan=0.0, posinf=10.0, neginf=0.0)
+        idx = np.round(np.linspace(0, len(scan_ranges) - 1, 20)).astype(int)
+        lidar_samples = scan_ranges[idx]
+
+        record = {
+            'timestamp': odom_msg.header.stamp.sec + odom_msg.header.stamp.nanosec * 1e-9,
+            'curr_x': curr_x,
+            'curr_y': curr_y,
+            'v_curr': curr_v,
+            'yaw': yaw,
+            'pp_steering': steering_angle,
+            'pp_speed': target_speed,
+        }
+        for i, val in enumerate(lidar_samples):
+            record[f'lidar_{i}'] = val
+        
+        if self.max_speed > 0:
+            self.data_buffer.append(record)
+
+    def save_to_csv(self):
+        if self.data_buffer:
+            df = pd.DataFrame(self.data_buffer)
+            file_exists = os.path.isfile(self.output_csv_path)
+            # Append mode 'a' allows you to keep adding laps to the same file
+            df.to_csv(self.output_csv_path, mode='a', index=False, header=not file_exists)
+            self.get_logger().info(f"💾 SAVED {len(self.data_buffer)} SAMPLES TO {self.output_csv_path}")
+
 def main(args=None):
     rclpy.init(args=args)
-    node = PurePursuit()
+    node = AutomatedCurriculumLogger()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        node.save_to_csv()
     finally:
         node.destroy_node()
         rclpy.shutdown()
