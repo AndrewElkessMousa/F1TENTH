@@ -3,176 +3,111 @@ from rclpy.node import Node
 import numpy as np
 import pandas as pd
 import os
-import message_filters
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from tf_transformations import euler_from_quaternion
 
-class AutomatedCurriculumLogger(Node):
+class PurePursuitRacing(Node):
     def __init__(self):
-        super().__init__('automated_curriculum_logger')
+        super().__init__('pure_pursuit_racing')
         
         # --- CONFIGURATION ---
-        self.waypoints_path = os.path.expanduser('~/sim_ws/src/controller/controller/waypoints.csv')
-        self.output_csv_path = os.path.expanduser('~/sim_ws/src/controller/controller/training_data.csv')
-        self.wheelbase = 0.33
+        base_path = os.path.expanduser('~/sim_ws/src/controller/controller/')
+        self.waypoints_path = os.path.join(base_path, 'waypoints.csv')
         
-        # --- CURRICULUM SETTINGS ---
-        self.speeds = [5.0, 7.0, 8.5] 
-        self.speed_idx = 0
-        self.max_speed = self.speeds[self.speed_idx]
-        self.laps_per_speed = 5
-        self.current_lap_in_phase = 0
+        self.wheelbase = 0.33
+        self.MAX_SPEED = 12  
+        self.MIN_SPEED = 3.5
 
-        # --- LAP TIMER LOGIC ---
+        # --- LAP TIMING ---
         self.lap_count = 0
         self.last_pos = None
-        self.total_dist_traveled = 0.0
-        self.cooldown_dist = 15.0
+        self.total_dist = 0.0
         self.finish_threshold = 1.2
-        self.lap_triggered = False
+        self.cooldown_dist = 20.0
+        self.lap_start_time = None
 
-        # Subscribers
-        self.odom_sub = message_filters.Subscriber(self, Odometry, '/ego_racecar/odom')
-        self.scan_sub = message_filters.Subscriber(self, LaserScan, '/scan')
-        self.ts = message_filters.ApproximateTimeSynchronizer([self.odom_sub, self.scan_sub], 10, 0.05)
-        self.ts.registerCallback(self.sync_callback)
+        # Subscribers & Publishers
+        self.odom_sub = self.create_subscription(Odometry, '/ego_racecar/odom', self.odom_callback, 10)
+        self.drive_pub = self.create_publisher(AckermannDriveStamped, '/drive', 10)
 
-        self.pub_drive = self.create_publisher(AckermannDriveStamped, '/drive', 10)
-
-        self.data_buffer = []
         self.load_waypoints()
-        
-        self.get_logger().info(f"🚀 LOGGER READY: Phase {self.speed_idx + 1}/3 | Max Speed: {self.max_speed} m/s")
+        self.get_logger().info(f"🏎️ PURE PURSUIT ACTIVE: Speed {self.MAX_SPEED}m/s | Logging Disabled")
 
     def load_waypoints(self):
         if not os.path.exists(self.waypoints_path):
             self.get_logger().error(f"❌ Waypoints not found at {self.waypoints_path}")
             return
-        df = pd.read_csv(self.waypoints_path)
-        self.waypoints = df[['x', 'y']].values
+        self.waypoints = pd.read_csv(self.waypoints_path)[['x', 'y']].values
 
-    def update_lap_counter(self, x, y):
-        curr_pos = np.array([x, y])
-        if self.last_pos is None:
-            self.last_pos = curr_pos
-            return
-
-        self.total_dist_traveled += np.linalg.norm(curr_pos - self.last_pos)
-        self.last_pos = curr_pos
-        dist_to_start = np.linalg.norm(curr_pos - self.waypoints[0])
-
-        if dist_to_start < self.finish_threshold:
-            if not self.lap_triggered and self.total_dist_traveled > self.cooldown_dist:
-                self.lap_count += 1
-                self.current_lap_in_phase += 1
-                self.total_dist_traveled = 0.0
-                self.lap_triggered = True
-                
-                self.get_logger().info(f"🏁 LAP {self.lap_count} DONE ({self.current_lap_in_phase}/{self.laps_per_speed})")
-
-                if self.current_lap_in_phase >= self.laps_per_speed:
-                    self.speed_idx += 1
-                    if self.speed_idx < len(self.speeds):
-                        self.max_speed = self.speeds[self.speed_idx]
-                        self.current_lap_in_phase = 0
-                        self.get_logger().info(f"🔥 SPEED INCREASED TO: {self.max_speed} m/s")
-                    else:
-                        self.get_logger().info("✅ CURRICULUM FINISHED!")
-                        self.max_speed = 0.0 
-        else:
-            if self.lap_triggered:
-                self.lap_triggered = False
-
-    def sync_callback(self, odom_msg, scan_msg):
-        curr_x = odom_msg.pose.pose.position.x
-        curr_y = odom_msg.pose.pose.position.y
-        curr_v = odom_msg.twist.twist.linear.x
+    def odom_callback(self, msg):
+        curr_x = msg.pose.pose.position.x
+        curr_y = msg.pose.pose.position.y
+        curr_v = msg.twist.twist.linear.x
         
-        self.update_lap_counter(curr_x, curr_y)
-
-        # 1. Orientation
-        orient = odom_msg.pose.pose.orientation
+        # Orientation
+        orient = msg.pose.pose.orientation
         _, _, yaw = euler_from_quaternion([orient.x, orient.y, orient.z, orient.w])
+
+        # 1. LAP TIMING
+        curr_pos = np.array([curr_x, curr_y])
+        if self.last_pos is not None:
+            self.total_dist += np.linalg.norm(curr_pos - self.last_pos)
+            dist_to_start = np.linalg.norm(curr_pos - self.waypoints[0])
+            
+            if dist_to_start < self.finish_threshold and self.total_dist > self.cooldown_dist:
+                now = self.get_clock().now().nanoseconds / 1e9
+                if self.lap_start_time:
+                    self.get_logger().info(f"⏱️ LAP {self.lap_count+1}: {now - self.lap_start_time:.3f}s")
+                self.lap_start_time = now
+                self.lap_count += 1
+                self.total_dist = 0.0
+        self.last_pos = curr_pos
+
+        # 2. PURE PURSUIT MATH
+        Ld = np.clip(curr_v * 0.12 + 0.8, 0.8, 3.5) # Lookahead distance
         
-        # 2. Pure Pursuit Logic
-        Ld = np.clip(curr_v * 0.12 + 0.8, 0.8, 3.5)
-        distances = np.linalg.norm(self.waypoints - np.array([curr_x, curr_y]), axis=1)
-        closest_idx = np.argmin(distances)
+        # Find target point
+        dists = np.linalg.norm(self.waypoints - curr_pos, axis=1)
+        closest_idx = np.argmin(dists)
         
         target_idx = closest_idx
-        for i in range(closest_idx, len(self.waypoints)):
-            if distances[i] >= Ld:
-                target_idx = i
+        for i in range(closest_idx, closest_idx + 100):
+            idx = i % len(self.waypoints)
+            if dists[idx] >= Ld:
+                target_idx = idx
                 break
         
-        target_point = self.waypoints[target_idx]
-        dx, dy = target_point[0] - curr_x, target_point[1] - curr_y
+        # Transform to local frame
+        target_pt = self.waypoints[target_idx]
+        dx, dy = target_pt[0] - curr_x, target_pt[1] - curr_y
         local_y = dx * np.sin(-yaw) + dy * np.cos(-yaw)
-        steering_angle = np.arctan((2 * self.wheelbase * local_y) / (Ld**2))
-        steering_angle = np.clip(steering_angle, -0.41, 0.41)
-
-        # 3. Predictive Braking
-        future_idx = min(target_idx + 12, len(self.waypoints) - 1)
-        future_pt = self.waypoints[future_idx]
-        f_dx, f_dy = future_pt[0] - curr_x, future_pt[1] - curr_y
-        f_local_y = f_dx * np.sin(-yaw) + f_dy * np.cos(-yaw)
-        future_steer_needed = abs(np.arctan((2 * self.wheelbase * f_local_y) / (Ld**2)))
         
-        severity = max(abs(steering_angle), future_steer_needed) / 0.41
-        min_allowed = min(3.5, self.max_speed)
-        
-        if self.max_speed > 0:
-            target_speed = max(self.max_speed - (self.max_speed - min_allowed) * severity, min_allowed)
-        else:
-            target_speed = 0.0
+        # Steering calculation
+        steer = np.arctan((2 * self.wheelbase * local_y) / (Ld**2))
+        steer = np.clip(steer, -0.41, 0.41)
 
-        # 4. Actuate
+        # 3. PREDICTIVE BRAKING
+        # Look ahead even further for curvature
+        future_idx = (target_idx + 12) % len(self.waypoints)
+        f_pt = self.waypoints[future_idx]
+        fl_y = (f_pt[0]-curr_x) * np.sin(-yaw) + (f_pt[1]-curr_y) * np.cos(-yaw)
+        f_steer = abs(np.arctan((2 * self.wheelbase * fl_y) / (Ld**2)))
+        
+        severity = max(abs(steer), f_steer) / 0.41
+        speed = max(self.MAX_SPEED - (self.MAX_SPEED - self.MIN_SPEED) * severity, self.MIN_SPEED)
+
+        # 4. PUBLISH DRIVE
         drive_msg = AckermannDriveStamped()
-        drive_msg.drive.speed = float(target_speed)
-        drive_msg.drive.steering_angle = float(steering_angle)
-        self.pub_drive.publish(drive_msg)
+        drive_msg.drive.speed = float(speed)
+        drive_msg.drive.steering_angle = float(steer)
+        self.drive_pub.publish(drive_msg)
 
-        # --- 5. UPDATED LOGGING (Includes curr_x, curr_y) ---
-        scan_ranges = np.array(scan_msg.ranges)
-        scan_ranges = np.nan_to_num(scan_ranges, nan=0.0, posinf=10.0, neginf=0.0)
-        idx = np.round(np.linspace(0, len(scan_ranges) - 1, 20)).astype(int)
-        lidar_samples = scan_ranges[idx]
-
-        record = {
-            'timestamp': odom_msg.header.stamp.sec + odom_msg.header.stamp.nanosec * 1e-9,
-            'curr_x': curr_x,
-            'curr_y': curr_y,
-            'v_curr': curr_v,
-            'yaw': yaw,
-            'pp_steering': steering_angle,
-            'pp_speed': target_speed,
-        }
-        for i, val in enumerate(lidar_samples):
-            record[f'lidar_{i}'] = val
-        
-        if self.max_speed > 0:
-            self.data_buffer.append(record)
-
-    def save_to_csv(self):
-        if self.data_buffer:
-            df = pd.DataFrame(self.data_buffer)
-            file_exists = os.path.isfile(self.output_csv_path)
-            # Append mode 'a' allows you to keep adding laps to the same file
-            df.to_csv(self.output_csv_path, mode='a', index=False, header=not file_exists)
-            self.get_logger().info(f"💾 SAVED {len(self.data_buffer)} SAMPLES TO {self.output_csv_path}")
-
-def main(args=None):
-    rclpy.init(args=args)
-    node = AutomatedCurriculumLogger()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        node.save_to_csv()
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+def main():
+    rclpy.init()
+    rclpy.spin(PurePursuitRacing())
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
