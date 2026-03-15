@@ -9,9 +9,10 @@ import torch.nn as nn
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
-from visualization_msgs.msg import Marker, MarkerArray
+from visualization_msgs.msg import Marker
 from tf_transformations import euler_from_quaternion
 
+# --- THE MODEL ARCHITECTURE ---
 class F1TENTH_PINN(nn.Module):
     def __init__(self, input_dim):
         super(F1TENTH_PINN, self).__init__()
@@ -20,181 +21,129 @@ class F1TENTH_PINN(nn.Module):
             nn.Tanh(),
             nn.Linear(64, 64),
             nn.Tanh(),
-            nn.Linear(64, 2)
+            nn.Linear(64, 2) # [dx, dy]
         )
     def forward(self, x):
         return self.net(x)
 
-class PINNHybridController(Node):
+class PINNFinalController(Node):
     def __init__(self):
-        super().__init__('pinn_hybrid_controller')
+        super().__init__('pinn_final_controller')
         
-        # --- CONFIGURATION ---
+        # Paths
         base_path = os.path.expanduser('~/sim_ws/src/controller/controller/')
         self.waypoints_path = os.path.join(base_path, 'waypoints.csv')
         self.model_path = os.path.join(base_path, 'pinn_model.pth')
         self.scaler_path = os.path.join(base_path, 'scaler.pkl')
         
+        # Vehicle & Racing Params
         self.wheelbase = 0.33
-        self.lookahead_gain = 0.18   
-        self.lookahead_min = 0.8     
-        self.lookahead_max = 3.5     
-        self.smoothing = 0.4          
-        self.MAX_STEER = 0.41         
-        self.MAX_CORRECTION = 0.06    
-        self.MIN_SPEED = 1.5          
-        self.MAX_SPEED = 8.0          
-
-        # --- UPDATED ACCURATE LAP TIMER SETTINGS ---
-        self.lap_start_time = None
-        self.lap_count = 0
-        self.finish_line_threshold = 1.2   # Increased for high speed (8m/s)
-        self.cooldown_dist = 10.0          # Dist to travel before re-arming
-        self.total_dist_traveled = 0.0
-        self.last_pos = None
-        self.lap_triggered = False         # Prevents double-counting
-        # -------------------------------------------
-
+        self.MAX_STEER = 0.41
+        self.TARGET_RACE_SPEED = 11.0  # Your target top speed
+        self.MIN_SPEED_FLOOR = 3.5    # Minimum speed for sharp hairpins
+        
+        # Load AI Components
         with open(self.scaler_path, 'rb') as f:
             self.scaler = pickle.load(f)
-        
-        self.model = F1TENTH_PINN(input_dim=22) 
+        self.model = F1TENTH_PINN(input_dim=22)
         self.model.load_state_dict(torch.load(self.model_path))
         self.model.eval()
 
         self.load_waypoints()
         
+        # ROS Comms
         self.odom_sub = self.create_subscription(Odometry, '/ego_racecar/odom', self.odom_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.drive_pub = self.create_publisher(AckermannDriveStamped, '/drive', 10)
-        self.viz_pub = self.create_publisher(MarkerArray, '/viz_path', 10)
-        self.target_pub = self.create_publisher(Marker, '/viz_target', 10)
+        self.viz_pub = self.create_publisher(Marker, '/pinn_prediction_viz', 10)
 
         self.v_curr, self.yaw, self.curr_x, self.curr_y = 0.0, 0.0, 0.0, 0.0
-        self.prev_steering = 0.0
-        self.create_timer(2.0, self.publish_static_path)
-        
-        self.get_logger().info("🚀 Hybrid PINN Active with Accurate Lap Timer!")
+        self.get_logger().info(f"🏁 Final PINN Controller Loaded. Target Speed: {self.TARGET_RACE_SPEED}m/s")
 
     def load_waypoints(self):
         df = pd.read_csv(self.waypoints_path)
         self.waypoints = df[['x', 'y']].values
 
-    def update_lap_timer(self, x, y):
-        curr_pos = np.array([x, y])
-        if self.last_pos is None:
-            self.last_pos = curr_pos
-            self.lap_start_time = self.get_clock().now()
-            return
-
-        # Cumulative distance to ensure we've actually driven the track
-        step_dist = np.linalg.norm(curr_pos - self.last_pos)
-        self.total_dist_traveled += step_dist
-        self.last_pos = curr_pos
-
-        # Check distance to Finish Line (Waypoint 0)
-        dist_to_finish = np.linalg.norm(curr_pos - self.waypoints[0])
-
-        if dist_to_finish < self.finish_line_threshold:
-            # Only trigger if we aren't already in the "triggered" state
-            if not self.lap_triggered and self.total_dist_traveled > self.cooldown_dist:
-                now = self.get_clock().now()
-                if self.lap_start_time is not None:
-                    lap_time_sec = (now - self.lap_start_time).nanoseconds / 1e9
-                    self.lap_count += 1
-                    self.get_logger().info(f"🏁 [HYBRID] LAP {self.lap_count} | TIME: {lap_time_sec:.3f}s")
-                
-                self.lap_start_time = now
-                self.total_dist_traveled = 0.0
-                self.lap_triggered = True  # Lock the trigger
-        else:
-            # Reset the trigger once we have moved outside the finish zone
-            if self.lap_triggered:
-                self.lap_triggered = False
-
     def odom_callback(self, msg):
         self.curr_x = msg.pose.pose.position.x
         self.curr_y = msg.pose.pose.position.y
         self.v_curr = msg.twist.twist.linear.x
-        
-        self.update_lap_timer(self.curr_x, self.curr_y)
-        
-        orient = msg.pose.pose.orientation
-        _, _, self.yaw = euler_from_quaternion([orient.x, orient.y, orient.z, orient.w])
+        _, _, self.yaw = euler_from_quaternion([
+            msg.pose.pose.orientation.x, msg.pose.pose.orientation.y,
+            msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])
 
     def scan_callback(self, scan_msg):
-        # 1. ADAPTIVE LOOKAHEAD
-        Ld = np.clip(self.v_curr * self.lookahead_gain + self.lookahead_min, self.lookahead_min, self.lookahead_max)
-        distances = np.linalg.norm(self.waypoints - np.array([self.curr_x, self.curr_y]), axis=1)
-        closest_idx = np.argmin(distances)
-        
-        target_idx = closest_idx
-        for i in range(closest_idx, len(self.waypoints)):
-            if distances[i] >= Ld:
-                target_idx = i
-                break
-        target_point = self.waypoints[target_idx]
-        self.publish_target_point(target_point[0], target_point[1])
-
-        dx, dy = target_point[0] - self.curr_x, target_point[1] - self.curr_y
-        local_y = dx * np.sin(-self.yaw) + dy * np.cos(-self.yaw)
-        pp_steering = np.arctan((2 * self.wheelbase * local_y) / (Ld**2))
-
-        # 2. AI PREDICTION
+        # 1. AI PREDICTION (Where will the car be?)
         scan_ranges = np.array(scan_msg.ranges)
         scan_ranges = np.nan_to_num(scan_ranges, nan=0.0, posinf=10.0, neginf=0.0)
         idx = np.round(np.linspace(0, len(scan_ranges) - 1, 20)).astype(int)
         lidar_samples = scan_ranges[idx]
+        
         ai_input = np.hstack(([self.v_curr, self.yaw], lidar_samples)).reshape(1, -1)
-        
         input_scaled = self.scaler.transform(ai_input)
-        input_tensor = torch.tensor(input_scaled, dtype=torch.float32)
+        
         with torch.no_grad():
-            prediction = self.model(input_tensor).numpy()[0]
+            prediction = self.model(torch.tensor(input_scaled, dtype=torch.float32)).numpy()[0]
         
-        # 3. FILTERS & COMMAND
-        steering_corr = np.clip(prediction[0], -self.MAX_CORRECTION, self.MAX_CORRECTION)
-        v_opt = np.clip(prediction[1], self.MIN_SPEED, self.MAX_SPEED)
+        # Transform local dx, dy to Global Coordinates
+        cos_y, sin_y = np.cos(self.yaw), np.sin(self.yaw)
+        pred_x = self.curr_x + (prediction[0] * cos_y - prediction[1] * sin_y)
+        pred_y = self.curr_y + (prediction[0] * sin_y + prediction[1] * cos_y)
+        self.publish_viz(pred_x, pred_y)
+
+        # 2. PURE PURSUIT (Lateral Control)
+        Ld = np.clip(self.v_curr * 0.15 + 0.8, 0.8, 3.5)
+        dists = np.linalg.norm(self.waypoints - np.array([pred_x, pred_y]), axis=1)
+        closest_idx = np.argmin(dists)
         
-        if abs(pp_steering) > 0.15:
-            v_opt *= 0.85 
+        target_idx = closest_idx
+        for i in range(closest_idx, len(self.waypoints)):
+            if dists[i] >= Ld:
+                target_idx = i
+                break
+        
+        target_pt = self.waypoints[target_idx]
+        tx, ty = target_pt[0] - pred_x, target_pt[1] - pred_y
+        local_y = tx * np.sin(-self.yaw) + ty * np.cos(-self.yaw)
+        steering_angle = np.arctan((2 * self.wheelbase * local_y) / (Ld**2))
+        steering_angle = np.clip(steering_angle, -self.MAX_STEER, self.MAX_STEER)
 
-        raw_final_steering = np.clip(pp_steering + steering_corr, -self.MAX_STEER, self.MAX_STEER)
-        final_steering = (self.smoothing * self.prev_steering) + ((1.0 - self.smoothing) * raw_final_steering)
-        self.prev_steering = final_steering
+        # 3. PREDICTIVE BRAKING (Longitudinal Control)
+        # Check waypoint curvature 15 points ahead
+        look_ahead_idx = min(target_idx + 15, len(self.waypoints) - 1)
+        look_ahead_pt = self.waypoints[look_ahead_idx]
+        
+        lx, ly = look_ahead_pt[0] - pred_x, look_ahead_pt[1] - pred_y
+        future_local_y = lx * np.sin(-self.yaw) + ly * np.cos(-self.yaw)
+        future_steer_needed = abs(np.arctan((2 * self.wheelbase * future_local_y) / (Ld**2)))
+        
+        # Blend current steer and future steer for braking severity
+        severity = max(abs(steering_angle), future_steer_needed) / self.MAX_STEER
+        
+        # Final Velocity Logic: Scale between Top Speed and Floor Speed
+        target_speed = self.TARGET_RACE_SPEED - (self.TARGET_RACE_SPEED - self.MIN_SPEED_FLOOR) * severity
+        target_speed = max(target_speed, self.MIN_SPEED_FLOOR)
 
+        # 4. PUBLISH
         drive_msg = AckermannDriveStamped()
-        drive_msg.drive.steering_angle = float(final_steering)
-        drive_msg.drive.speed = float(v_opt)
+        drive_msg.drive.speed = float(target_speed)
+        drive_msg.drive.steering_angle = float(steering_angle)
         self.drive_pub.publish(drive_msg)
 
-    def publish_static_path(self):
-        marker_array = MarkerArray()
-        for i in range(0, len(self.waypoints), 5):
-            marker = Marker()
-            marker.header.frame_id = "map"
-            marker.id = i
-            marker.type = Marker.SPHERE
-            marker.action = Marker.ADD
-            marker.pose.position.x, marker.pose.position.y = float(self.waypoints[i][0]), float(self.waypoints[i][1])
-            marker.scale.x, marker.scale.y, marker.scale.z = 0.15, 0.15, 0.15
-            marker.color.a, marker.color.g = 1.0, 1.0
-            marker_array.markers.append(marker)
-        self.viz_pub.publish(marker_array)
-
-    def publish_target_point(self, tx, ty):
-        marker = Marker()
-        marker.header.frame_id = "map"
-        marker.type = Marker.SPHERE
-        marker.action = Marker.ADD
-        marker.pose.position.x, marker.pose.position.y = float(tx), float(ty)
-        marker.scale.x, marker.scale.y, marker.scale.z = 0.35, 0.35, 0.35
-        marker.color.a, marker.color.r = 1.0, 1.0
-        self.target_pub.publish(marker)
+    def publish_viz(self, px, py):
+        m = Marker()
+        m.header.frame_id = "map"
+        m.id = 0
+        m.type = Marker.SPHERE
+        m.pose.position.x, m.pose.position.y = float(px), float(py)
+        m.scale.x = m.scale.y = m.scale.z = 0.2
+        m.color.a, m.color.r, m.color.g, m.color.b = 1.0, 0.0, 1.0, 1.0 # Cyan
+        self.viz_pub.publish(m)
 
 def main(args=None):
     rclpy.init(args=args)
-    node = PINNHybridController()
-    rclpy.spin(node)
-    node.destroy_node()
+    rclpy.spin(PINNFinalController())
     rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
