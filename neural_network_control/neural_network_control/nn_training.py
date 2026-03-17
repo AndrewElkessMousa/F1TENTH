@@ -118,7 +118,7 @@ def main(args=None): # Added args=None for ROS 2 compatibility
         if avg_val < best_val_loss:
             best_val_loss = avg_val
             # Save the model in the current working directory
-            torch.save(model.state_dict(), 'pinn_model_v2.pth')
+            torch.save(model.state_dict(), 'nn_model_v2.pth')
             if epoch > 5: print(f"✨ New Best Val Loss! Model saved at epoch {epoch+1}")
 
     print(f"✅ Training Complete. Best Validation Loss: {best_val_loss:.5f}")

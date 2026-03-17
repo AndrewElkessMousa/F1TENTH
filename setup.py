@@ -25,8 +25,10 @@ setup(
     entry_points={
         'console_scripts': [
             'pure_pursuit = neural_network_control.pure_pursuit:main',
-            'train_pinn = neural_network_control.train_pinn:main',
-            'pinn_ai_controller = neural_network_control.pinn_ai_controller:main',
+            'nn_training = neural_network_control.nn_training:main',
+            'nn_ai_controller = neural_network_control.nn_ai_controller:main',
+            'pinn_drive = neural_network_control.pinn_drive:main',
+            'pinn_training = neural_network_control.pinn_training:main',
         ],
     },
 )
