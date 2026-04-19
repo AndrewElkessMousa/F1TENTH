@@ -1,0 +1,41 @@
+[0.452s] Invoking command in '/home/andrew/sim_ws/src/controller': PYTHONPATH=/home/andrew/sim_ws/src/build/controller/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages:${PYTHONPATH} VIRTUAL_ENV_PROMPT=(.venv) /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/controller build --build-base /home/andrew/sim_ws/src/build/controller/build install --record /home/andrew/sim_ws/src/build/controller/install.log --single-version-externally-managed install_data
+[0.625s] running egg_info
+[0.626s] writing ../build/controller/controller.egg-info/PKG-INFO
+[0.626s] writing dependency_links to ../build/controller/controller.egg-info/dependency_links.txt
+[0.626s] writing entry points to ../build/controller/controller.egg-info/entry_points.txt
+[0.626s] writing requirements to ../build/controller/controller.egg-info/requires.txt
+[0.626s] writing top-level names to ../build/controller/controller.egg-info/top_level.txt
+[0.627s] reading manifest file '../build/controller/controller.egg-info/SOURCES.txt'
+[0.628s] writing manifest file '../build/controller/controller.egg-info/SOURCES.txt'
+[0.628s] running build
+[0.628s] running build_py
+[0.628s] copying controller/manual_logger.py -> /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.628s] copying controller/pure_pursuit.py -> /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.628s] copying controller/manual_teleop.py -> /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.629s] copying controller/pinn_inference.py -> /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.629s] copying controller/train_pinn.py -> /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.629s] running install
+[0.629s] running install_lib
+[0.629s] copying /home/andrew/sim_ws/src/build/controller/build/lib/controller/manual_logger.py -> /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.629s] copying /home/andrew/sim_ws/src/build/controller/build/lib/controller/pure_pursuit.py -> /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.629s] copying /home/andrew/sim_ws/src/build/controller/build/lib/controller/manual_teleop.py -> /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.629s] copying /home/andrew/sim_ws/src/build/controller/build/lib/controller/pinn_inference.py -> /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.630s] copying /home/andrew/sim_ws/src/build/controller/build/lib/controller/train_pinn.py -> /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.630s] byte-compiling /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller/manual_logger.py to manual_logger.cpython-310.pyc
+[0.630s] byte-compiling /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller/pure_pursuit.py to pure_pursuit.cpython-310.pyc
+[0.631s] byte-compiling /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller/manual_teleop.py to manual_teleop.cpython-310.pyc
+[0.631s] byte-compiling /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller/pinn_inference.py to pinn_inference.cpython-310.pyc
+[0.633s] byte-compiling /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller/train_pinn.py to train_pinn.cpython-310.pyc
+[0.633s] running install_data
+[0.633s] running install_egg_info
+[0.634s] removing '/home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller-0.0.0-py3.10.egg-info' (and everything under it)
+[0.634s] Copying ../build/controller/controller.egg-info to /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller-0.0.0-py3.10.egg-info
+[0.635s] running install_scripts
+[0.649s] Installing manual_logger script to /home/andrew/sim_ws/src/install/controller/lib/controller
+[0.649s] Installing manual_teleop script to /home/andrew/sim_ws/src/install/controller/lib/controller
+[0.649s] Installing pinn_drive script to /home/andrew/sim_ws/src/install/controller/lib/controller
+[0.649s] Installing pure_pursuit script to /home/andrew/sim_ws/src/install/controller/lib/controller
+[0.649s] Installing train_pinn script to /home/andrew/sim_ws/src/install/controller/lib/controller
+[0.649s] Installing waypoint_logger script to /home/andrew/sim_ws/src/install/controller/lib/controller
+[0.649s] writing list of installed files to '/home/andrew/sim_ws/src/build/controller/install.log'
+[0.664s] Invoked command in '/home/andrew/sim_ws/src/controller' returned '0': PYTHONPATH=/home/andrew/sim_ws/src/build/controller/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages:${PYTHONPATH} VIRTUAL_ENV_PROMPT=(.venv) /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/controller build --build-base /home/andrew/sim_ws/src/build/controller/build install --record /home/andrew/sim_ws/src/build/controller/install.log --single-version-externally-managed install_data

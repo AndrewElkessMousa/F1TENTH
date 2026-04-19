@@ -1,0 +1,36 @@
+[0.427s] Invoking command in '/home/andrew/sim_ws/src/controller': PYTHONPATH=/home/andrew/sim_ws/src/build/controller/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/controller build --build-base /home/andrew/sim_ws/src/build/controller/build install --record /home/andrew/sim_ws/src/build/controller/install.log --single-version-externally-managed install_data
+[0.576s] running egg_info
+[0.576s] creating ../build/controller/controller.egg-info
+[0.576s] writing ../build/controller/controller.egg-info/PKG-INFO
+[0.576s] writing dependency_links to ../build/controller/controller.egg-info/dependency_links.txt
+[0.576s] writing entry points to ../build/controller/controller.egg-info/entry_points.txt
+[0.576s] writing requirements to ../build/controller/controller.egg-info/requires.txt
+[0.576s] writing top-level names to ../build/controller/controller.egg-info/top_level.txt
+[0.576s] writing manifest file '../build/controller/controller.egg-info/SOURCES.txt'
+[0.577s] reading manifest file '../build/controller/controller.egg-info/SOURCES.txt'
+[0.578s] writing manifest file '../build/controller/controller.egg-info/SOURCES.txt'
+[0.578s] running build
+[0.578s] running build_py
+[0.578s] creating /home/andrew/sim_ws/src/build/controller/build
+[0.578s] creating /home/andrew/sim_ws/src/build/controller/build/lib
+[0.578s] creating /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.578s] copying controller/pure_pursuit.py -> /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.578s] copying controller/__init__.py -> /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.578s] running install
+[0.578s] running install_lib
+[0.579s] creating /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.579s] copying /home/andrew/sim_ws/src/build/controller/build/lib/controller/pure_pursuit.py -> /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.579s] copying /home/andrew/sim_ws/src/build/controller/build/lib/controller/__init__.py -> /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.580s] byte-compiling /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller/pure_pursuit.py to pure_pursuit.cpython-310.pyc
+[0.580s] byte-compiling /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller/__init__.py to __init__.cpython-310.pyc
+[0.580s] running install_data
+[0.580s] creating /home/andrew/sim_ws/src/install/controller/share/ament_index
+[0.580s] creating /home/andrew/sim_ws/src/install/controller/share/ament_index/resource_index
+[0.580s] creating /home/andrew/sim_ws/src/install/controller/share/ament_index/resource_index/packages
+[0.580s] copying resource/controller -> /home/andrew/sim_ws/src/install/controller/share/ament_index/resource_index/packages
+[0.580s] copying package.xml -> /home/andrew/sim_ws/src/install/controller/share/controller
+[0.580s] running install_egg_info
+[0.581s] Copying ../build/controller/controller.egg-info to /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller-0.0.0-py3.10.egg-info
+[0.581s] running install_scripts
+[0.595s] writing list of installed files to '/home/andrew/sim_ws/src/build/controller/install.log'
+[0.608s] Invoked command in '/home/andrew/sim_ws/src/controller' returned '0': PYTHONPATH=/home/andrew/sim_ws/src/build/controller/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/controller build --build-base /home/andrew/sim_ws/src/build/controller/build install --record /home/andrew/sim_ws/src/build/controller/install.log --single-version-externally-managed install_data

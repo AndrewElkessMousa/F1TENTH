@@ -1,0 +1,8 @@
+[console_scripts]
+manual_logger = controller.manual_logger:main
+manual_teleop = controller.manual_teleop:main
+pinn_drive = controller.pinn_inference:main
+pure_pursuit = controller.pure_pursuit:main
+train_pinn = controller.train_pinn:main
+waypoint_logger = controller.waypoint_logger:main
+

@@ -1,0 +1,25 @@
+[0.382s] Invoking command in '/home/andrew/sim_ws/src/controller': PYTHONPATH=/home/andrew/sim_ws/src/build/controller/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/controller build --build-base /home/andrew/sim_ws/src/build/controller/build install --record /home/andrew/sim_ws/src/build/controller/install.log --single-version-externally-managed install_data
+[0.533s] running egg_info
+[0.533s] writing ../build/controller/controller.egg-info/PKG-INFO
+[0.533s] writing dependency_links to ../build/controller/controller.egg-info/dependency_links.txt
+[0.533s] writing entry points to ../build/controller/controller.egg-info/entry_points.txt
+[0.533s] writing requirements to ../build/controller/controller.egg-info/requires.txt
+[0.533s] writing top-level names to ../build/controller/controller.egg-info/top_level.txt
+[0.534s] reading manifest file '../build/controller/controller.egg-info/SOURCES.txt'
+[0.535s] writing manifest file '../build/controller/controller.egg-info/SOURCES.txt'
+[0.535s] running build
+[0.535s] running build_py
+[0.535s] copying controller/pure_pursuit.py -> /home/andrew/sim_ws/src/build/controller/build/lib/controller
+[0.535s] running install
+[0.535s] running install_lib
+[0.536s] copying /home/andrew/sim_ws/src/build/controller/build/lib/controller/pure_pursuit.py -> /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller
+[0.536s] byte-compiling /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller/pure_pursuit.py to pure_pursuit.cpython-310.pyc
+[0.537s] running install_data
+[0.537s] running install_egg_info
+[0.538s] removing '/home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller-0.0.0-py3.10.egg-info' (and everything under it)
+[0.538s] Copying ../build/controller/controller.egg-info to /home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages/controller-0.0.0-py3.10.egg-info
+[0.539s] running install_scripts
+[0.552s] Installing pure_pursuit script to /home/andrew/sim_ws/src/install/controller/lib/controller
+[0.552s] Installing waypoint_logger script to /home/andrew/sim_ws/src/install/controller/lib/controller
+[0.552s] writing list of installed files to '/home/andrew/sim_ws/src/build/controller/install.log'
+[0.566s] Invoked command in '/home/andrew/sim_ws/src/controller' returned '0': PYTHONPATH=/home/andrew/sim_ws/src/build/controller/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/andrew/sim_ws/src/install/controller/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/controller build --build-base /home/andrew/sim_ws/src/build/controller/build install --record /home/andrew/sim_ws/src/build/controller/install.log --single-version-externally-managed install_data
