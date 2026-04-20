@@ -20,7 +20,7 @@ class WallFollow(Node):
         self.setpoint = 0.8    
         self.look_ahead = 0.5  
         
-        # New Print to confirm startup
+         New Print to confirm startup
         self.get_logger().info("🚀 LEFT WALL FOLLOW NODE STARTED - VERSION 2.0")
         
     def get_range(self, range_data, angle):
