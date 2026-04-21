@@ -1,0 +1,49 @@
+frenet_planner_node:
+  ros__parameters:
+    odom_topic: /ego_racecar/odom
+    path_topic: /frenet_path
+    target_topic: /frenet_target_point
+    markers_topic: /frenet_debug_markers
+    centerline_topic: /centerline_path
+    frame_id: map
+
+    centerline_csv: /home/amir/sim_ws/src/frenet_tenth_planner/config/center_line_sp.csv
+    track_width: 0.9
+
+    target_speed: 3.0
+    lookahead_index: 6.0
+
+    max_speed: 6.0
+    max_accel: 6.0
+    max_curvature: 5.0
+
+    max_road_width: 0.3
+    d_road_w: 0.05
+    dt: 0.1
+    maxt: 2.5
+    mint: 1.0
+
+    d_t_s: 0.5
+    n_s_sample: 1.0
+
+    robot_radius: 0.20
+    safe_distance: 0.2
+    range_path_check: 1.0
+    next_s_borders: 30.0
+
+    kj: 0.01
+    kt: 0.1
+    kd: 1.5
+    klat: 1.0
+    klon: 1.0
+
+    check_derivatives: true
+    overtake_strategy: 0
+    debug_log: true
+
+    use_test_obstacle: true
+    test_obstacle_s_offset: 8.0
+    test_obstacle_d_offset: 0.0
+    test_obstacle_radius: 0.25
+    debug_min_speed: 2.0
+    force_debug_speed_when_stopped: false
