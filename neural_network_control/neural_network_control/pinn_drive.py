@@ -7,12 +7,15 @@ import torch
 import torch.nn as nn
 import pickle
 import time
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from nav_msgs.msg import Odometry
+from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from visualization_msgs.msg import Marker, MarkerArray
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseStamped
+from nav_msgs.msg import Path
 from tf_transformations import euler_from_quaternion
 
 class F1TENTH_PINN(nn.Module):
@@ -34,14 +37,26 @@ class PINNDriveNode(Node):
         super().__init__('pinn_drive')
         
         # Paths
-        self.base_path = os.path.expanduser('~/sim_ws/src/neural_network_control/neural_network_control/')
-        model_path = os.path.join(self.base_path, 'pinn_model_weights.pth')
-        scaler_path = os.path.join(self.base_path, 'pinn_scaler.pkl')
-        waypoints_path = os.path.join(self.base_path, 'waypoints.csv')
+        self.package_share = get_package_share_directory('neural_network_control')
+        self.base_path = os.path.dirname(os.path.realpath(__file__))
+        model_path = os.path.join(self.package_share, 'pinn_model_weights.pth')
+        scaler_path = os.path.join(self.package_share, 'pinn_scaler.pkl')
 
-        # Load Waypoints
-        self.waypoints = pd.read_csv(waypoints_path)[['x', 'y']].values
+        default_waypoints = os.path.join(self.package_share, 'center_line_sp.csv')
+        waypoints_path = self.declare_parameter('waypoints_path', default_waypoints).value
+        self.waypoints_topic = self.declare_parameter('waypoints_topic', '/center_line_path').value
+        self.center_line_received = False
+
+        # Load Waypoints from file as a default fallback
+        df_wp = pd.read_csv(waypoints_path, comment='#', header=None)
+        if df_wp.shape[1] < 2:
+            raise ValueError(f"Waypoint CSV must have at least 2 columns: {waypoints_path}")
+        wp_xy = df_wp.iloc[:, :2].apply(pd.to_numeric, errors='coerce').dropna()
+        if wp_xy.empty:
+            raise ValueError(f"No valid waypoint rows found in: {waypoints_path}")
+        self.waypoints = wp_xy.to_numpy(dtype=float)
         self.start_line = self.waypoints[0]
+        self.get_logger().info(f'Loaded {len(self.waypoints)} center line waypoints from: {waypoints_path}')
 
         # Load Model and Scaler
         with open(scaler_path, 'rb') as f:
@@ -62,15 +77,23 @@ class PINNDriveNode(Node):
         self.lap_start_time = time.time()
         self.total_dist_traveled = 0.0
         self.prev_pos = None
+        self.plot_output_dir = os.path.join(self.base_path, 'lap_plots')
+        self.pinn_reference_path = os.path.join(self.base_path, 'pinn_reference_lap.csv')
+        os.makedirs(self.plot_output_dir, exist_ok=True)
+
+        self.last_estimated_pose = None
+        self.last_estimated_pose_time = None
 
         # ROS Setup
         self.drive_pub = self.create_publisher(AckermannDriveStamped, '/drive', 10)
-        self.odom_sub = self.create_subscription(Odometry, '/ego_racecar/odom', self.odom_cb, 10)
+        self.odom_sub = self.create_subscription(PoseStamped, '/pf/viz/inferred_pose', self.odom_cb, 10)
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_cb, 10)
-        self.path_viz_pub = self.create_publisher(Marker, '/visualization_marker', 10)
+        self.path_sub = self.create_subscription(Path, self.waypoints_topic, self.center_line_path_cb, 10)
+        self.path_viz_pub = self.create_publisher(MarkerArray, '/visualization_marker_array', 10)
         
         self.curr_x, self.curr_y, self.yaw, self.v_curr = 0.0, 0.0, 0.0, 0.0
         self.get_logger().info("🚀 PINN Drive with CTE Tracking Started.")
+        self.get_logger().info(f'Listening for center line path on: {self.waypoints_topic}')
         
         # Publish Global Path Visualization (continuously on timer)
         self.path_timer = self.create_timer(1.0, self.publish_path_visualization)
@@ -116,8 +139,89 @@ class PINNDriveNode(Node):
         # Calculate and log performance metrics
         self.compute_and_save_metrics(lap_time)
 
+    def _lap_label(self, lap_number):
+        if 10 <= lap_number % 100 <= 20:
+            suffix = 'th'
+        else:
+            suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(lap_number % 10, 'th')
+        return f'{lap_number}{suffix}'
+
+    def _lap_time_tag(self, lap_time):
+        return f'{lap_time:.3f}s'.replace('.', 'p')
+
+    def save_reference_csv(self, lap_time):
+        """Save latest PINN trajectory as XY for multi-controller overlay plotting."""
+        if len(self.actual_x) < 2:
+            return
+        df = pd.DataFrame({
+            'x': np.array(self.actual_x),
+            'y': np.array(self.actual_y),
+            'lap_time_s': np.full(len(self.actual_x), lap_time)
+        })
+        df.to_csv(self.pinn_reference_path, index=False)
+        self.get_logger().info(f"💾 Saved PINN XY trajectory CSV: {self.pinn_reference_path}")
+
+        lap_path = os.path.join(self.base_path, f'pinn_reference_lap_{self.lap_count}.csv')
+        df.to_csv(lap_path, index=False)
+        self.get_logger().info(f"💾 Saved PINN lap-specific XY CSV: {lap_path}")
+
+    def save_lap_path_overlay(self, lap_time):
+        if len(self.actual_x) < 2 or len(self.desired_x) < 2:
+            return
+
+        actual_path = np.column_stack((np.array(self.actual_x), np.array(self.actual_y)))
+        desired_path = np.vstack((self.waypoints, self.waypoints[0]))
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.plot(desired_path[:, 0], desired_path[:, 1], color='green', linewidth=2.5, label='Desired path')
+        ax.plot(actual_path[:, 0], actual_path[:, 1], color='red', linestyle='--', linewidth=2, label='Actual path (PINN)')
+        ax.scatter(self.waypoints[0][0], self.waypoints[0][1], color='blue', s=60, label='Start')
+        ax.set_title(f'{self._lap_label(self.lap_count)} Lap Path Comparison | {lap_time:.3f}s')
+        ax.set_xlabel('X (m)')
+        ax.set_ylabel('Y (m)')
+        ax.axis('equal')
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='best')
+
+        save_name = os.path.join(
+            self.plot_output_dir,
+            f'lap_{self._lap_label(self.lap_count)}_{self._lap_time_tag(lap_time)}_path.png'
+        )
+        fig.tight_layout()
+        fig.savefig(save_name, dpi=150)
+        plt.close(fig)
+        self.get_logger().info(f"🖼️ Saved lap path overlay: {save_name}")
+        
+        # Also save a minimal clean version (paths only)
+        self.save_lap_path_minimal(lap_time, actual_path, desired_path)
+
+    def save_lap_path_minimal(self, lap_time, actual_path, desired_path):
+        """Save a minimal, clean PNG with just the desired path (green) and actual path (blue)"""
+        fig, ax = plt.subplots(figsize=(10, 10))
+        
+        # Plot paths - matching exact style requested
+        ax.plot(desired_path[:, 0], desired_path[:, 1], color='green', linewidth=2.5, label='Desired Path')
+        ax.plot(actual_path[:, 0], actual_path[:, 1], color='blue', linewidth=2, label='Actual Path')
+        
+        # Minimal styling
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper right', fontsize=12, framealpha=0.95)
+        ax.set_xlabel('X (m)', fontsize=11)
+        ax.set_ylabel('Y (m)', fontsize=11)
+        ax.tick_params(labelsize=10)
+        
+        save_name = os.path.join(
+            self.plot_output_dir,
+            f'lap_{self._lap_label(self.lap_count)}_paths_clean.png'
+        )
+        fig.savefig(save_name, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        self.get_logger().info(f"📐 Saved minimal path overlay: {save_name}")
+
+
     def publish_path_visualization(self):
-        """Publish waypoints as green line marker for visualization in RViz"""
+        """Publish waypoints as green line MarkerArray for visualization in RViz"""
         marker = Marker()
         marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -153,8 +257,23 @@ class PINNDriveNode(Node):
         point.y = float(self.waypoints[0][1])
         point.z = 0.0
         marker.points.append(point)
-        
-        self.path_viz_pub.publish(marker)
+
+        marker_array = MarkerArray()
+        marker_array.markers.append(marker)
+        self.path_viz_pub.publish(marker_array)
+
+    def center_line_path_cb(self, msg: Path):
+        if not msg.poses:
+            return
+
+        waypoints = np.array([[pose.pose.position.x, pose.pose.position.y] for pose in msg.poses], dtype=float)
+        if waypoints.size == 0:
+            return
+
+        self.waypoints = waypoints
+        self.start_line = self.waypoints[0]
+        self.center_line_received = True
+        self.get_logger().info(f'Received {len(self.waypoints)} center line points from {self.waypoints_topic}')
 
     def compute_and_save_metrics(self, lap_time):
         """Calculate quantitative performance metrics for comparison"""
@@ -255,11 +374,20 @@ class PINNDriveNode(Node):
         self.get_logger().info(f"   Trajectory Correlation: {correlation:.4f}")
 
     def odom_cb(self, msg):
-        self.curr_x = msg.pose.pose.position.x
-        self.curr_y = msg.pose.pose.position.y
-        self.v_curr = msg.twist.twist.linear.x
-        orient = msg.pose.pose.orientation
+        self.curr_x = msg.pose.position.x
+        self.curr_y = msg.pose.position.y
+        orient = msg.pose.orientation
         _, _, self.yaw = euler_from_quaternion([orient.x, orient.y, orient.z, orient.w])
+
+        now = time.time()
+        if self.last_estimated_pose is not None and self.last_estimated_pose_time is not None:
+            dt = now - self.last_estimated_pose_time
+            if dt > 1e-3:
+                dx = self.curr_x - self.last_estimated_pose[0]
+                dy = self.curr_y - self.last_estimated_pose[1]
+                self.v_curr = float(np.hypot(dx, dy) / dt)
+        self.last_estimated_pose = (self.curr_x, self.curr_y, self.yaw)
+        self.last_estimated_pose_time = now
 
         # Lap Detection Logic
         curr_pos = np.array([self.curr_x, self.curr_y])
@@ -270,6 +398,8 @@ class PINNDriveNode(Node):
             if dist_to_start < 1.0 and self.total_dist_traveled > 20.0:
                 self.lap_count += 1
                 lap_duration = time.time() - self.lap_start_time
+                self.save_reference_csv(lap_duration)
+                self.save_lap_path_overlay(lap_duration)
                 self.save_performance_plot(lap_duration)
                 
                 # Reset Buffers
@@ -328,7 +458,8 @@ class PINNDriveNode(Node):
             prediction = self.model(input_tensor).cpu().numpy()[0]
         
         drive_msg = AckermannDriveStamped()
-        drive_msg.drive.steering_angle, drive_msg.drive.speed = float(prediction[0]), float(prediction[1])
+        drive_msg.drive.steering_angle = float(prediction[0])
+        drive_msg.drive.speed = float(prediction[1])
         self.drive_pub.publish(drive_msg)
 
 def main(args=None):

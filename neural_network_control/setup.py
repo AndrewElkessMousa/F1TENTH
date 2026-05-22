@@ -9,7 +9,11 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name, [
+            'package.xml',
+            'neural_network_control/pinn_model_weights.pth',
+            'neural_network_control/pinn_scaler.pkl',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -25,10 +29,12 @@ setup(
     entry_points={
         'console_scripts': [
             'pure_pursuit = neural_network_control.pure_pursuit:main',
-            'nn_training = neural_network_control.nn_training:main',
-            'nn_ai_controller = neural_network_control.nn_ai_controller:main',
             'pinn_drive = neural_network_control.pinn_drive:main',
             'pinn_training = neural_network_control.pinn_training:main',
+            'publish_center_line = neural_network_control.publish_center_line:main',
+            'vesc_driver = neural_network_control.vesc_driver:main',
+            'ackermann_servo_node = neural_network_control.ackermann_servo_node:main',
+
         ],
     },
 )

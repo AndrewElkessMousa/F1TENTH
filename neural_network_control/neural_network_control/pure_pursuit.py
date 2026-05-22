@@ -17,7 +17,7 @@ class CurriculumPerformancePlotter(Node):
         # --- 1. CONFIG & PATHS ---
         # Residing in Egypt for your uni track development
         self.base_path = os.path.expanduser('~/sim_ws/src/neural_network_control/neural_network_control/')
-        self.waypoints_path = os.path.join(self.base_path, 'waypoints.csv')
+        self.waypoints_path = os.path.join(self.base_path, 'Spielberg_centerline.csv')
         self.pp_reference_path = os.path.join(self.base_path, 'pp_reference_lap.csv')
         
         self.wheelbase = 0.33
@@ -48,7 +48,19 @@ class CurriculumPerformancePlotter(Node):
         self.get_logger().info(f"🏁 PP PLOTTER START: Target Speed {self.TARGET_SPEED}m/s")
 
     def load_waypoints(self):
-        self.waypoints = pd.read_csv(self.waypoints_path)[['x', 'y']].values
+        # Deterministic parsing: use first 2 numeric columns, ignore comments/headers.
+        df = pd.read_csv(self.waypoints_path, comment='#', header=None)
+        if df.shape[1] < 2:
+            raise ValueError(f"Waypoint CSV must have at least 2 columns: {self.waypoints_path}")
+
+        xy = df.iloc[:, :2].apply(pd.to_numeric, errors='coerce').dropna()
+        if xy.empty:
+            raise ValueError(f"No valid waypoint rows found in: {self.waypoints_path}")
+
+        self.waypoints = xy.to_numpy(dtype=float)
+        self.get_logger().info(
+            f"Loaded {len(self.waypoints)} waypoints from {os.path.basename(self.waypoints_path)}"
+        )
 
     def save_reference_csv(self, progress_axis):
         """Saves PP data for the PINN node comparison."""
